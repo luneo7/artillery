@@ -98,7 +98,10 @@ WSEngine.prototype.compile = function (tasks, scenarioSpec, ee) {
 
       ee.emit('started');
 
-      let ws = new WebSocket(config.target, options);
+      const wsUrl = template(config.target, initialContext);
+
+      let ws = new WebSocket(wsUrl, options);
+
       ws.on('open', function() {
         initialContext.ws = ws;
         return callback(null, initialContext);
