@@ -305,6 +305,19 @@ function runScenario(script, intermediate, runState) {
     _.each(script.scenarios, function(scenario) {
       if (!scenario.weight) {
         scenario.weight = 1;
+      } else {
+        debug(`scenario ${scenario.name} weight = ${scenario.weight}`);
+        const variableValues = Object.assign(
+          datafileVariables(script),
+          inlineVariables(script),
+          { $processEnvironment: process.env });
+
+        const w = engineUtil.template(
+          scenario.weight,
+          { vars: variableValues });
+        // eslint-disable-next-line radix
+        scenario.weight = isNaN(parseInt(w)) ? 0 : parseInt(w);
+        debug(`scenario ${scenario.name} weight has been set to ${scenario.weight}`);
       }
     });
 
@@ -376,6 +389,38 @@ function runScenario(script, intermediate, runState) {
   });
 }
 
+function datafileVariables(script) {
+  let result = {};
+  if (script.config.payload) {
+    _.each(script.config.payload, function(el) {
+
+      // If data = [] (i.e. the CSV file is empty, or only has headers and
+      // skipHeaders = true), then row could = undefined
+      let row = el.reader(el.data) || [];
+      _.each(el.fields, function(fieldName, j) {
+        result[fieldName] = row[j];
+      });
+    });
+  }
+  return result;
+}
+
+function inlineVariables(script) {
+  let result = {};
+  if (script.config.variables) {
+    _.each(script.config.variables, function(v, k) {
+      let val;
+      if (_.isArray(v)) {
+        val = _.sample(v);
+      } else {
+        val = v;
+      }
+      result[k] = val;
+    });
+  }
+  return result;
+}
+
 /**
  * Create initial context for a scenario.
  */
@@ -383,11 +428,13 @@ function createContext(script) {
   const INITIAL_CONTEXT = {
     vars: {
       target: script.config.target,
-      $environment: script._environment
+      $environment: script._environment,
+      $processEnvironment: process.env
     },
     funcs: {
       $randomNumber: $randomNumber,
-      $randomString: $randomString
+      $randomString: $randomString,
+      $template: input => engineUtil.template(input, { vars: result.vars })
     }
   };
   let result = _.cloneDeep(INITIAL_CONTEXT);
