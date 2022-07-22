@@ -543,16 +543,34 @@ HttpEngine.prototype.step = function step(requestSpec, ee, opts) {
                 }
 
                 // match and capture are strict by default:
-                haveFailedMatches = _.some(result.matches, function (v, k) {
-                  return !v.success && v.strict !== false;
+                const failedMatches = _.keys(result.matches).filter(function (
+                  expression
+                ) {
+                  const match = result.matches[expression];
+                  return !match.success && match.strict !== false;
                 });
 
-                haveFailedCaptures = _.some(result.captures, function (v, k) {
-                  return v.failed;
+                haveFailedMatches = failedMatches.length > 0;
+
+                let failedCaptures = _.keys(result.captures).filter(function (
+                  expression
+                ) {
+                  return result.captures[expression] === '';
                 });
+
+                haveFailedCaptures = failedCaptures.length > 0;
 
                 if (haveFailedMatches || haveFailedCaptures) {
-                  // TODO: Emit the details of each failed capture/match
+                  failedMatches.forEach((expression) => {
+                    const match = result.matches[expression];
+                    ee.emit(
+                      'error',
+                      `Failed match: expected=${match.expected} got=${match.got} expression=${expression}`
+                    );
+                  });
+                  failedCaptures.forEach((expression) =>
+                    ee.emit('error', `Failed capture: expression=${expression}`)
+                  );
                 } else {
                   _.each(result.matches, function (v, k) {
                     ee.emit('match', v.success, {
@@ -661,7 +679,6 @@ HttpEngine.prototype.step = function step(requestSpec, ee, opts) {
             ee.emit('counter', 'http.requests', 1);
             ee.emit('rate', 'http.request_rate');
             req.on('response', function (res) {
-
               self._handleResponse(
                 requestParams,
                 res,
@@ -671,7 +688,6 @@ HttpEngine.prototype.step = function step(requestSpec, ee, opts) {
                 callback
               );
             });
-
           })
           .on('error', function (err, body, res) {
             if (err.name === 'HTTPError') {
@@ -753,8 +769,13 @@ HttpEngine.prototype._handleResponse = function (
       // We're done when:
       // - 3xx response and not following redirects
       // - not a 3xx response
-      if ((res.statusCode >= 300 && res.statusCode < 400 && !requestParams.followRedirect) ||
-         (res.statusCode < 300 || res.statusCode >= 400)) {
+      if (
+        (res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          !requestParams.followRedirect) ||
+        res.statusCode < 300 ||
+        res.statusCode >= 400
+      ) {
         callback(null, context);
       } else {
         // should not happen, will hang indefinitely
